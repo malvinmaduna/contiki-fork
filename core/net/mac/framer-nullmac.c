@@ -91,5 +91,5 @@ parse(void)
 }
 /*---------------------------------------------------------------------------*/
 const struct framer framer_nullmac = {
-  create, parse
+  create, framer_canonical_create_and_secure, parse
 };

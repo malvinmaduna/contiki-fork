@@ -116,5 +116,5 @@ parse(void)
 }
 /*---------------------------------------------------------------------------*/
 const struct framer no_framer = {
-  create, parse
+  create, framer_canonical_create_and_secure, parse
 };
