@@ -108,6 +108,13 @@ struct neighbor_queue {
 #define CSMA_MAX_NEIGHBOR_QUEUES 2
 #endif /* CSMA_CONF_MAX_NEIGHBOR_QUEUES */
 
+/* The maximum number of pending packet per neighbor */
+#ifdef CSMA_CONF_MAX_PACKET_PER_NEIGHBOR
+#define CSMA_MAX_PACKET_PER_NEIGHBOR CSMA_CONF_MAX_PACKET_PER_NEIGHBOR
+#else
+#define CSMA_MAX_PACKET_PER_NEIGHBOR MAX_QUEUED_PACKETS
+#endif /* CSMA_CONF_MAX_PACKET_PER_NEIGHBOR */
+
 #define MAX_QUEUED_PACKETS QUEUEBUF_NUM
 MEMB(neighbor_memb, struct neighbor_queue, CSMA_MAX_NEIGHBOR_QUEUES);
 MEMB(packet_memb, struct rdc_buf_list, MAX_QUEUED_PACKETS);
@@ -117,6 +124,21 @@ LIST(neighbor_list);
 static void packet_sent(void *ptr, int status, int num_transmissions);
 static void transmit_packet_list(void *ptr);
 
+int packet_overflow;
+int neighbor_overflow;
+
+/*---------------------------------------------------------------------------*/
+int
+csma_allocated_packets(void)
+{
+  return MAX_QUEUED_PACKETS - memb_count(&packet_memb);
+}
+/*---------------------------------------------------------------------------*/
+int
+csma_allocated_neighbors(void)
+{
+  return CSMA_MAX_NEIGHBOR_QUEUES - memb_count(&neighbor_memb);
+}
 /*---------------------------------------------------------------------------*/
 static struct neighbor_queue *
 neighbor_queue_from_addr(const linkaddr_t *addr)
@@ -173,8 +195,8 @@ free_packet(struct neighbor_queue *n, struct rdc_buf_list *p)
     queuebuf_free(p->buf);
     memb_free(&metadata_memb, p->ptr);
     memb_free(&packet_memb, p);
-    PRINTF("csma: free_queued_packet, queue length %d\n",
-        list_length(n->queued_packet_list));
+    PRINTF("csma: free_queued_packet, queue length %d, free packets %d\n",
+           list_length(n->queued_packet_list), memb_count(&packet_memb));
     if(list_head(n->queued_packet_list) != NULL) {
       /* There is a next packet. We reset current tx information */
       n->transmissions = 0;
@@ -298,7 +320,11 @@ packet_sent(void *ptr, int status, int num_transmissions)
         free_packet(n, q);
         mac_call_sent_callback(sent, cptr, status, num_tx);
       }
+    } else {
+      PRINTF("csma: no metadata\n");
     }
+  } else {
+    PRINTF("csma: seqno %d not found\n", packetbuf_attr(PACKETBUF_ATTR_MAC_SEQNO));
   }
 }
 /*---------------------------------------------------------------------------*/
@@ -344,51 +370,59 @@ send_packet(mac_callback_t sent, void *ptr)
 
   if(n != NULL) {
     /* Add packet to the neighbor's queue */
-    q = memb_alloc(&packet_memb);
-    if(q != NULL) {
-      q->ptr = memb_alloc(&metadata_memb);
-      if(q->ptr != NULL) {
-	q->buf = queuebuf_new_from_packetbuf();
-	if(q->buf != NULL) {
-	  struct qbuf_metadata *metadata = (struct qbuf_metadata *)q->ptr;
-	  /* Neighbor and packet successfully allocated */
-	  if(packetbuf_attr(PACKETBUF_ATTR_MAX_MAC_TRANSMISSIONS) == 0) {
-	    /* Use default configuration for max transmissions */
-	    metadata->max_transmissions = CSMA_MAX_MAC_TRANSMISSIONS;
-	  } else {
-	    metadata->max_transmissions =
-                  packetbuf_attr(PACKETBUF_ATTR_MAX_MAC_TRANSMISSIONS);
-	  }
-	  metadata->sent = sent;
-	  metadata->cptr = ptr;
+    if(list_length(n->queued_packet_list) < CSMA_MAX_PACKET_PER_NEIGHBOR) {
+      q = memb_alloc(&packet_memb);
+      if(q != NULL) {
+        q->ptr = memb_alloc(&metadata_memb);
+        if(q->ptr != NULL) {
+          q->buf = queuebuf_new_from_packetbuf();
+          if(q->buf != NULL) {
+            struct qbuf_metadata *metadata = (struct qbuf_metadata *)q->ptr;
+            /* Neighbor and packet successfully allocated */
+            if(packetbuf_attr(PACKETBUF_ATTR_MAX_MAC_TRANSMISSIONS) == 0) {
+              /* Use default configuration for max transmissions */
+              metadata->max_transmissions = CSMA_MAX_MAC_TRANSMISSIONS;
+            } else {
+              metadata->max_transmissions =
+                packetbuf_attr(PACKETBUF_ATTR_MAX_MAC_TRANSMISSIONS);
+            }
+            metadata->sent = sent;
+            metadata->cptr = ptr;
 
-	  if(packetbuf_attr(PACKETBUF_ATTR_PACKET_TYPE) ==
-	     PACKETBUF_ATTR_PACKET_TYPE_ACK) {
-	    list_push(n->queued_packet_list, q);
-	  } else {
-	    list_add(n->queued_packet_list, q);
-	  }
+            if(packetbuf_attr(PACKETBUF_ATTR_PACKET_TYPE) ==
+               PACKETBUF_ATTR_PACKET_TYPE_ACK) {
+              list_push(n->queued_packet_list, q);
+            } else {
+              list_add(n->queued_packet_list, q);
+            }
 
-	  /* If q is the first packet in the neighbor's queue, send asap */
-	  if(list_head(n->queued_packet_list) == q) {
-	    ctimer_set(&n->transmit_timer, 0, transmit_packet_list, n);
-	  }
-	  return;
-	}
-	memb_free(&metadata_memb, q->ptr);
-	PRINTF("csma: could not allocate queuebuf, dropping packet\n");
+            PRINTF("csma: send_packet, queue length %d, free packets %d\n",
+                   list_length(n->queued_packet_list), memb_count(&packet_memb));
+            /* If q is the first packet in the neighbor's queue, send asap */
+            if(list_head(n->queued_packet_list) == q) {
+              ctimer_set(&n->transmit_timer, 0, transmit_packet_list, n);
+            }
+            return;
+          }
+          memb_free(&metadata_memb, q->ptr);
+          PRINTF("csma: could not allocate queuebuf, dropping packet\n");
+        }
+        memb_free(&packet_memb, q);
+        PRINTF("csma: could not allocate queuebuf, dropping packet\n");
       }
-      memb_free(&packet_memb, q);
-      PRINTF("csma: could not allocate queuebuf, dropping packet\n");
-    }
-    /* The packet allocation failed. Remove and free neighbor entry if empty. */
-    if(list_length(n->queued_packet_list) == 0) {
-      list_remove(neighbor_list, n);
-      memb_free(&neighbor_memb, n);
+      /* The packet allocation failed. Remove and free neighbor entry if empty. */
+      if(list_length(n->queued_packet_list) == 0) {
+        list_remove(neighbor_list, n);
+        memb_free(&neighbor_memb, n);
+      }
+    } else {
+      PRINTF("csma: Neighbor queue full\n");
     }
     PRINTF("csma: could not allocate packet, dropping packet\n");
+    packet_overflow++;
   } else {
     PRINTF("csma: could not allocate neighbor, dropping packet\n");
+    neighbor_overflow++;
   }
   mac_call_sent_callback(sent, ptr, MAC_TX_ERR, 1);
 }
@@ -426,6 +460,7 @@ init(void)
   memb_init(&packet_memb);
   memb_init(&metadata_memb);
   memb_init(&neighbor_memb);
+  packet_overflow = 0;
 }
 /*---------------------------------------------------------------------------*/
 const struct mac_driver csma_driver = {
