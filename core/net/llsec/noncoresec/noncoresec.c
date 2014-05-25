@@ -50,6 +50,7 @@
 #include "net/netstack.h"
 #include "net/packetbuf.h"
 #include "net/nbr-table.h"
+#include "net/linkaddr.h"
 #include "lib/aes-128.h"
 #include <string.h>
 
@@ -79,6 +80,24 @@ static uint8_t key[16] = NONCORESEC_KEY;
 NBR_TABLE(struct anti_replay_info, anti_replay_table);
 
 /*---------------------------------------------------------------------------*/
+static const uint8_t *
+get_extended_address(const linkaddr_t *addr)
+#if LINKADDR_SIZE == 2
+{
+  /* workaround for short addresses: derive EUI64 as in RFC 6282 */
+  static linkaddr_extended_t template = { { 0x00 , 0x00 , 0x00 ,
+                                            0xFF , 0xFE , 0x00 , 0x00 , 0x00 } };
+  
+  template.u16[3] = LLSEC802154_HTONS(addr->u16);
+  
+  return template.u8;
+}
+#else /* LINKADDR_SIZE == 2 */
+{
+  return addr->u8;
+}
+#endif /* LINKADDR_SIZE == 2 */
+/*---------------------------------------------------------------------------*/
 static void
 send(mac_callback_t sent, void *ptr)
 {
@@ -97,9 +116,9 @@ on_frame_created(void)
   dataptr = packetbuf_dataptr();
   data_len = packetbuf_datalen();
   
-  CCM.mic(linkaddr_node_addr.u8, dataptr + data_len, LLSEC802154_MIC_LENGTH);
+  CCM.mic(get_extended_address(&linkaddr_node_addr), dataptr + data_len, LLSEC802154_MIC_LENGTH);
 #if WITH_ENCRYPTION
-  CCM.ctr(linkaddr_node_addr.u8);
+  CCM.ctr(get_extended_address(&linkaddr_node_addr));
 #endif /* WITH_ENCRYPTION */
   packetbuf_set_datalen(data_len + LLSEC802154_MIC_LENGTH);
   
@@ -123,9 +142,9 @@ input(void)
   packetbuf_set_datalen(packetbuf_datalen() - LLSEC802154_MIC_LENGTH);
   
 #if WITH_ENCRYPTION
-  CCM.ctr(sender->u8);
+  CCM.ctr(get_extended_address(sender));
 #endif /* WITH_ENCRYPTION */
-  CCM.mic(sender->u8, generated_mic, LLSEC802154_MIC_LENGTH);
+  CCM.mic(get_extended_address(sender), generated_mic, LLSEC802154_MIC_LENGTH);
   
   received_mic = ((uint8_t *) packetbuf_dataptr()) + packetbuf_datalen();
   if(memcmp(generated_mic, received_mic, LLSEC802154_MIC_LENGTH) != 0) {
