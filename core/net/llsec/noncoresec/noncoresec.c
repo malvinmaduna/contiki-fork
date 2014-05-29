@@ -137,8 +137,12 @@ input(void)
     PRINTF("noncoresec: received frame with wrong security level\n");
     return;
   }
-  
   sender = packetbuf_addr(PACKETBUF_ADDR_SENDER);
+  if(linkaddr_cmp(sender, &linkaddr_node_addr)) {
+    PRINTF("noncoresec: frame from ourselves\n");
+    return;
+  }
+  
   packetbuf_set_datalen(packetbuf_datalen() - LLSEC802154_MIC_LENGTH);
   
 #if WITH_ENCRYPTION
