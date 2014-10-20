@@ -126,7 +126,10 @@ static rpl_parent_t *
 best_parent(rpl_parent_t *p1, rpl_parent_t *p2)
 {
   rpl_rank_t r1, r2;
-  rpl_dag_t *dag;
+  rpl_dag_t *dag;  
+  uip_ds6_nbr_t *nbr1, *nbr2;
+  nbr1 = rpl_get_nbr(p1);
+  nbr2 = rpl_get_nbr(p2);
 
   PRINTF("RPL: Comparing parent ");
   PRINT6ADDR(rpl_get_parent_ipaddr(p1));
@@ -138,9 +141,9 @@ best_parent(rpl_parent_t *p1, rpl_parent_t *p2)
 
 
   r1 = DAG_RANK(p1->rank, p1->dag->instance) * RPL_MIN_HOPRANKINC  +
-         p1->link_metric;
+    nbr1->link_metric;
   r2 = DAG_RANK(p2->rank, p1->dag->instance) * RPL_MIN_HOPRANKINC  +
-         p2->link_metric;
+    nbr2->link_metric;
   /* Compare two parents by looking both and their rank and at the ETX
      for that parent. We choose the parent that has the most
      favourable combination. */
