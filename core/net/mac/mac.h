@@ -46,13 +46,14 @@
 
 typedef void (* mac_callback_t)(void *ptr, int status, int transmissions);
 
+/* Note: the num_tx argument becomes retransmission delay when status is MAC_TX_AGAIN */
 void mac_call_sent_callback(mac_callback_t sent, void *ptr, int status, int num_tx);
 
 /**
  * The structure of a MAC protocol driver in Contiki.
  */
 struct mac_driver {
-  char *name;
+  const char *name;
 
   /** Initialize the MAC driver */
   void (* init)(void);

@@ -53,7 +53,7 @@ const struct sensors_sensor *sensors[] = {__VA_ARGS__, NULL};       \
 unsigned char sensors_flags[SENSORS_NUM]
 
 struct sensors_sensor {
-  char *       type;
+  const char * type;
   int          (* value)     (int type);
   int          (* configure) (int type, int value);
   int          (* status)    (int type);
