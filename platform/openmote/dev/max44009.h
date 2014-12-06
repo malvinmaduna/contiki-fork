@@ -37,62 +37,20 @@
  * \defgroup openmote
  * 
  * \file
- * Driver for the TPS62730 voltage regulator on the OpenMote-CC2538.
+ * Header for the MAX44009 light sensor in OpenMote-CC2538.
  *
  * \author
  * Pere Tuset <peretuset@openmote.com>
  */
 
+#ifndef __MAX44009_H__
+#define __MAX44009_H__
 /*---------------------------------------------------------------------------*/
-#include "contiki-conf.h"
-#include "dev/gpio.h"
-#include "tps62730.h"
+void init(void);
+void reset(void);
+uint8_t is_present(void);
+uint16_t read_light(void);
+float convert_light(uint16_t light);
 /*---------------------------------------------------------------------------*/
-#define BSP_TPS62730_BASE           (GPIO_B_BASE)
-#define BSP_TPS62730_ON             (1 << 1)
-#define BSP_TPS62730_STATUS         (1 << 0)
-/*---------------------------------------------------------------------------*/
-static void
-gpio_set(int port, int bit)
-{
-  REG((port | GPIO_DATA) + (bit << 2)) = bit;
-}
-/*---------------------------------------------------------------------------*/
-static void
-gpio_reset(int port, int bit)
-{
-  REG((port | GPIO_DATA) + (bit << 2)) = 0;
-}
-/*---------------------------------------------------------------------------*/
-/**
- * Initializes the TPS62730 voltage regulator
- * By default it is in bypass mode, Vout = Vin, Iq < 1 uA
- */
-void
-tps62730_init(void)
-{
-  GPIO_SET_OUTPUT(BSP_TPS62730_BASE, BSP_TPS62730_ON);
-  GPIO_SET_INPUT(BSP_TPS62730_BASE, BSP_TPS62730_STATUS);
-  
-  tps62730_bypass();
-}
-/*---------------------------------------------------------------------------*/
-/**
- * Enables the TPS62730, Vout = 2.2V, Iq = 30 uA
- */
-void
-tps62730_on(void)
-{
-  gpio_set(BSP_TPS62730_BASE, BSP_TPS62730_ON);
-}
-/*---------------------------------------------------------------------------*/
-/**
- * Disables the TPS62730, Vout = Vin, Iq < 1 uA
- */
-void
-tps62730_bypass(void)
-{
-  gpio_reset(BSP_TPS62730_BASE, BSP_TPS62730_ON);
-}
-/*---------------------------------------------------------------------------*/
+#endif /* ifndef __MAX44009_H__ */
 /** @} */
