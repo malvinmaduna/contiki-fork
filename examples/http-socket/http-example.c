@@ -28,8 +28,6 @@ callback(struct http_socket *s, void *ptr,
     printf("HTTP socket closed, %d bytes received\n", bytes_received);
   } else if(e == HTTP_SOCKET_DATA) {
     bytes_received += datalen;
-    printf("HTTP socket closed\n");
-  } else if(e == HTTP_SOCKET_DATA) {
     printf("HTTP socket received %d bytes of data\n", datalen);
   }
 }
