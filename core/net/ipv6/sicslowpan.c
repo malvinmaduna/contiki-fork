@@ -213,10 +213,7 @@ static int last_rssi;
 /* ----------------------------------------------------------------- */
 /* Support for reassembling multiple packets                         */
 /* ----------------------------------------------------------------- */
-/* The fragmentation buffer are also possible to use for other
- * temporary memory allocation. In that case the number of available
- * buffers will be lower for a short time.
- **/
+
 #if SICSLOWPAN_CONF_FRAG
 static uint16_t my_tag;
 
@@ -406,13 +403,15 @@ add_fragment(uint16_t tag, uint16_t frag_size, uint8_t offset)
     frag_info[i].reassembled_len += len;
     return i;
   } else {
-    /* should we also clear all fragments since we failed to store this fragment? */
+    /* should we also clear all fragments since we failed to store
+       this fragment? */
     PRINTF("*** Failed to store fragment - packet reassembly will fail tag:%d l\n", frag_info[i].tag);
     return -1;
   }
 }
 /*---------------------------------------------------------------------------*/
-/* Copy all the fragments that are associated with a specific context into uip */
+/* Copy all the fragments that are associated with a specific context
+   into uip */
 static void
 copy_frags2uip(int context)
 {
@@ -1271,6 +1270,7 @@ static uint8_t
 output(const uip_lladdr_t *localdest)
 {
   int framer_hdrlen;
+  int max_payload;
 
   /* The MAC address of the destination of the packet */
   linkaddr_t dest;
@@ -1349,13 +1349,13 @@ output(const uip_lladdr_t *localdest)
   framer_hdrlen = NETSTACK_FRAMER.length();
   if(framer_hdrlen < 0) {
     /* Framing failed, we assume the maximum header length */
-    framer_hdrlen = 23;
+    framer_hdrlen = 21;
   }
 #else /* USE_FRAMER_HDRLEN */
-  framer_hdrlen = 23;
+  framer_hdrlen = 21;
 #endif /* USE_FRAMER_HDRLEN */
-
-  if((int)uip_len - (int)uncomp_hdr_len > (int)MAC_MAX_PAYLOAD - framer_hdrlen - (int)packetbuf_hdr_len) {
+  max_payload = MAC_MAX_PAYLOAD - framer_hdrlen - NETSTACK_LLSEC.get_overhead();
+  if((int)uip_len - (int)uncomp_hdr_len > max_payload - (int)packetbuf_hdr_len) {
 #if SICSLOWPAN_CONF_FRAG
     struct queuebuf *q;
     uint16_t frag_tag;
@@ -1367,7 +1367,7 @@ output(const uip_lladdr_t *localdest)
      * IPv6/IPHC/HC_UDP dispatchs/headers.
      * The following fragments contain only the fragn dispatch.
      */
-    int estimated_fragments = ((int)uip_len) / ((int)MAC_MAX_PAYLOAD - SICSLOWPAN_FRAGN_HDR_LEN) + 1;
+    int estimated_fragments = ((int)uip_len) / ((int)max_payload - SICSLOWPAN_FRAGN_HDR_LEN) + 1;
     int freebuf = queuebuf_numfree() - 1;
     PRINTFO("uip_len: %d, fragments: %d, free bufs: %d\n", uip_len, estimated_fragments, freebuf);
     if(freebuf < estimated_fragments) {
@@ -1399,7 +1399,7 @@ output(const uip_lladdr_t *localdest)
 
     /* Copy payload and send */
     packetbuf_hdr_len += SICSLOWPAN_FRAG1_HDR_LEN;
-    packetbuf_payload_len = (MAC_MAX_PAYLOAD - framer_hdrlen - packetbuf_hdr_len) & 0xfffffff8;
+    packetbuf_payload_len = (max_payload - packetbuf_hdr_len) & 0xfffffff8;
     PRINTFO("(len %d, tag %d)\n", packetbuf_payload_len, frag_tag);
     memcpy(packetbuf_ptr + packetbuf_hdr_len,
            (uint8_t *)UIP_IP_BUF + uncomp_hdr_len, packetbuf_payload_len);
@@ -1435,7 +1435,7 @@ output(const uip_lladdr_t *localdest)
 /*       uip_htons((SICSLOWPAN_DISPATCH_FRAGN << 8) | uip_len); */
     SET16(PACKETBUF_FRAG_PTR, PACKETBUF_FRAG_DISPATCH_SIZE,
           ((SICSLOWPAN_DISPATCH_FRAGN << 8) | uip_len));
-    packetbuf_payload_len = (MAC_MAX_PAYLOAD - framer_hdrlen - packetbuf_hdr_len) & 0xfffffff8;
+    packetbuf_payload_len = (max_payload - packetbuf_hdr_len) & 0xfffffff8;
     while(processed_ip_out_len < uip_len) {
       PRINTFO("sicslowpan output: fragment ");
       PACKETBUF_FRAG_PTR[PACKETBUF_FRAG_OFFSET] = processed_ip_out_len >> 3;
@@ -1553,7 +1553,9 @@ input(void)
       /* Add the fragment to the fragmentation context */
       frag_context = add_fragment(frag_tag, frag_size, frag_offset);
 
-      if(frag_context == -1) return;
+      if(frag_context == -1) {
+        return;
+      }
 
       buffer = frag_info[frag_context].first_frag;
 
@@ -1576,15 +1578,18 @@ input(void)
       PRINTFI("last_fragment?: processed_ip_in_len %d packetbuf_payload_len %d frag_size %d\n",
               processed_ip_in_len, packetbuf_datalen() - packetbuf_hdr_len, frag_size);
 
-      /* Add the fragment to the fragmentation context  (this will also copy the payload) */
+      /* Add the fragment to the fragmentation context (this will also
+         copy the payload) */
       frag_context = add_fragment(frag_tag, frag_size, frag_offset);
 
-      if(frag_context == -1) return;
+      if(frag_context == -1) {
+        return;
+      }
 
-      /* Ok - add_fragment will store the fragment automatically - so we should not store more */
+      /* Ok - add_fragment will store the fragment automatically - so
+         we should not store more */
       buffer = NULL;
 
-      //      if(processed_ip_in_len + packetbuf_datalen() - packetbuf_hdr_len >= frag_size) {
       if(frag_info[frag_context].reassembled_len >= frag_size) {
         last_fragment = 1;
       }
