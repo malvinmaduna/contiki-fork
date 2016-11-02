@@ -84,7 +84,7 @@ send_connect(struct websocket_http_client_state *s)
   tcp_socket_send_str(tcps, "CONNECT ");
   tcp_socket_send_str(tcps, s->host);
   tcp_socket_send_str(tcps, ":");
-  snprintf(buf, sizeof(buf), "%d", s->port);
+  sprintf(buf, "%d", s->port);
   tcp_socket_send_str(tcps, buf);
   tcp_socket_send_str(tcps, " HTTP/1.1\r\n");
   tcp_socket_send_str(tcps, "Host: ");
@@ -119,6 +119,8 @@ static int
 parse_header_byte(struct websocket_http_client_state *s,
                   uint8_t b)
 {
+  static const char *endmarker = "\r\n\r\n";
+
   PT_BEGIN(&s->parse_header_pt);
 
   /* Skip the first part of the HTTP response */
@@ -157,12 +159,10 @@ parse_header_byte(struct websocket_http_client_state *s,
      matched. If we match the total length of the string, we stop.
   */
 
-  static const char *endmarker = "\r\n\r\n";
-
   s->i = 0;
   do {
     PT_YIELD(&s->parse_header_pt);
-    if(b == endmarker[s->i]) {
+    if(b == (uint8_t)endmarker[s->i]) {
       s->i++;
     } else {
       s->i = 0;
